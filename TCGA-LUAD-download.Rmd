@@ -131,3 +131,62 @@ Sanity check.
 # table(clinical_os$OS_event)
 # summary(clinical_os$OS_time_days)
 ```
+
+```{r}
+clinical_case_id <- clinical_os$submitter_id
+common_cases <- intersect(expr_case_id, clinical_case_id)
+length(common_cases)
+
+#Actually, there is no identical submitter id in clincal dataset.
+
+clinical_os_keep <- clinical_os %>%
+  filter(submitter_id %in% common_cases) %>%
+  distinct(submitter_id, .keep_all = TRUE)
+
+#There are 83 duplicated id in the expr_case_id so we need to screen them first.
+
+expr_keep_cols <- !duplicated(expr_case_id)
+expr_unique <- expr[, expr_keep_cols, drop = FALSE]
+
+#Pick the samples that occur in  common_cases
+expr_unique_case <- substr(colnames(expr_unique), 1, 12)
+keep_cols <- expr_unique_case %in% common_cases
+expr_keep <- expr_unique[, keep_cols, drop = FALSE]
+# dim(expr_keep)
+# dim(clinical_os_keep)
+```
+
+Sort the expr_keep case number with the clinical_os$submitter_id.
+
+```{r}
+expr_keep_case_id <- substr(colnames(expr_keep),1 , 12)
+
+ord <- match(clinical_os_keep$submitter_id, expr_case_id)
+
+stopifnot(!any(is.na(ord)))
+
+expr_keep_sorted <- expr[, ord, drop = FALSE]
+
+colnames(expr_keep_sorted)
+clinical_os_keep$submitter_id
+
+
+
+```
+
+Merge the expression matrix with the OS data.
+
+```{r}
+#Transpose the expr_keep first
+
+expr_df <- as.data.frame(t(expr_keep_sorted))
+expr_df$case_id <- substr(rownames(expr_df), 1, 12)
+
+model_df <- cbind(clinical_os_keep, expr_df[, setdiff(names(expr_df), "case_id")])
+```
+
+Sanity check.
+
+```{r}
+stopifnot(nrow(model_df) == ncol(expr_keep_sorted))
+```
