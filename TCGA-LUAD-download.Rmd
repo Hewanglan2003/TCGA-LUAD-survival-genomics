@@ -37,6 +37,7 @@ library(readr)
 # 
 # query
 
+#Next time we want to do it on other kinds of cancer in TCGA, only changing the project name is enough.
 project <- "TCGA-LUAD"
 
 download_expr <- function(workflow){
@@ -67,7 +68,7 @@ se <- tryCatch(
 )
 ```
 
-
+Extract the expression matrix from the se(summarized experiment)
 
 ```{r}
 se
@@ -77,14 +78,56 @@ class(se)
 # colData(se)
 
 expr <- assay(se)
-gene <- rowData(se)
-sample <- colData(se)
+#gene <- rowData(se)
+#sample <- colData(se)
 dim(expr)
 # head(expr)
 ```
 
-```{r}
+Get the barcodes and caseid from se from the merging in the future.
 
+```{r}
+library(TCGAbiolinks)
+library(dplyr)
+library(stringr)
+
+expr_barcodes <- colnames(assay(se))
+expr_case_id <- substr(expr_barcodes, 1, 12)
+expr_barcodes
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Get clinical data through GDCquery_clinic.
+
+```{r}
+clinical_raw <- GDCquery_clinic(project = project, type = "clinical")
+dim(clinical_raw)
+names(clinical_raw)[1:30]
+head(clinical_raw[, 1:10])
+```
+Transform the phenotype data into OS data.
+
+```{r}
+clinical_os <- clinical_raw %>%
+  mutate(
+    OS_event = case_when(
+      tolower(vital_status) == "dead" ~ 1,
+      tolower(vital_status) == "alive" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    OS_time_days = case_when(
+      !is.na(days_to_death) ~ as.numeric(days_to_death),
+      !is.na(days_to_last_follow_up) ~ as.numeric(days_to_last_follow_up),
+      !is.na(days_to_last_known_disease_status) ~ as.numeric(days_to_last_known_disease_status),
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  
+   filter(!is.na(OS_event), !is.na(OS_time_days), OS_time_days > 0)
+```
+
+Sanity check.
+
+```{r}
+# table(clinical_os$OS_event)
+# summary(clinical_os$OS_time_days)
+```
