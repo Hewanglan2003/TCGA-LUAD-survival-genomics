@@ -1,0 +1,90 @@
+---
+title: "download_tcga_lgg"
+author: "Yubo Shen"
+date: "2025-12-20"
+output: pdf_document
+---
+Install all the necessary packages in this project.
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE)) install.packages("Biocmanager")
+
+pkgs <- c("TCGAbiolinks", "SummarizedExperiment", "dplyr", "stringr", "readr")
+for (p in pkgs){
+  if (!requireNamespace(p, quietly = TRUE)) BiocManager::install(p, update = FALSE)
+}
+
+library(TCGAbiolinks)
+library(SummarizedExperiment)
+library(dplyr)
+library(stringr)
+library(readr)
+
+```
+
+
+
+```{r}
+#  BiocManager::install(ask = FALSE, update = TRUE)
+#  BiocManager::install("TCGAbiolinks", ask = FALSE, update = TRUE)
+# 
+#  library(TCGAbiolinks)
+# 
+#  query <- GDCquery(
+#    project       = "TCGA-LUAD",
+#    data.category = "Transcriptome Profiling",
+#    data.type     = "Gene Expression Quantification"
+#  )
+# 
+# query
+
+project <- "TCGA-LUAD"
+
+download_expr <- function(workflow){
+  message("Trying workflow: ", workflow)
+  query <- GDCquery(
+    project = project,
+    data.category = "Transcriptome Profiling",
+    data.type = "Gene Expression Quantification",
+    workflow.type = workflow
+  )
+  GDCdownload(query)
+  se <- GDCprepare(query)
+  se
+}
+
+se <- tryCatch(
+  download_expr("STAR - Counts"),
+  error = function(e1){
+    message("STAR - Counts failed. Trying HTSeq - Counts ...")
+    tryCatch(
+      download_expr("HTSeq - Counts"),
+      error = function(e2){
+        stop("Both STAR - Counts and HTSeq - Counts failed.\n", "STAR error:", e1$message, "\nHTSeq error: ", e2$message)
+        
+      }
+    )
+  }
+)
+```
+
+
+
+```{r}
+se
+class(se)
+# assay(se)
+# rowData(se)
+# colData(se)
+
+expr <- assay(se)
+gene <- rowData(se)
+sample <- colData(se)
+dim(expr)
+# head(expr)
+```
+
+```{r}
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
