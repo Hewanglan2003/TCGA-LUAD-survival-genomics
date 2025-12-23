@@ -295,4 +295,50 @@ saveRDS(
 )
 ```
 
+Multivariate Cox for risk, age, stage and gender.
+Risk score is still an important factor in this survival analysis part.
 
+```{r}
+library(survival)
+cox_multi <- coxph(Surv(OS_time_days, OS_event) ~ risk + age_years + gender + ajcc_pathologic_stage, data = model_df)
+summary(cox_multi)
+```
+Show the genes that are most important and significant.
+```{r}
+library(org.Hs.eg.db)
+library(AnnotationDbi)
+genes_47 <- sig_min$gene
+genes_47_clean <- sub("\\..*$", "", genes_47)
+head(genes_47)
+head(genes_47_clean)
+
+# BiocManager::install("org.Hs.eg.db")
+map_df <- AnnotationDbi::select(
+  org.Hs.eg.db,
+  keys = genes_47_clean,
+  keytype = "ENSEMBL",
+  columns = c("SYMBOL", "GENENAME")
+)
+
+sig_min$ENSEMBL <- sub("\\..*$", "", sig_min$gene)
+
+sig_annot <- merge(
+  sig_min,
+  map_df,
+  by.x = "ENSEMBL",
+  by.y = "ENSEMBL",
+  all.x = TRUE
+)
+
+head(sig_annot)
+
+table(is.na(sig_annot$SYMBOL))
+```
+
+```{r}
+write.csv(
+  sig_annot,
+  file = "R results/ElasticNet_47genes_mapping_summary.csv",
+  row.names = FALSE
+)
+```
