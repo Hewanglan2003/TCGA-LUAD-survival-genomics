@@ -203,3 +203,96 @@ summary(model_df$risk)
 ```{r}
 saveRDS(model_df, "R data/model_df_with_riskscores.rds")
 ```
+
+Split the risk score groups.
+
+```{r}
+cut <- median(model_df$risk, na.rm = TRUE)
+model_df$risk_group <- ifelse(model_df$risk >= cut, "High", "Low")
+model_df$risk_group <- factor(model_df$risk_group, levels = c("Low", "High"))
+
+table(model_df$risk_group)
+```
+
+KM plot and log rank p value
+
+```{r}
+library(survival)
+library(survminer)
+
+km_fit <- survfit(Surv(OS_time_days, OS_event) ~ risk_group, data = model_df)
+
+p <- ggsurvplot(
+  km_fit,
+  data = model_df,
+
+  size = 1.2,                 
+  censor.size = 2.8,          
+  conf.int = FALSE,
+
+  pval = TRUE,
+  pval.method = TRUE,
+  pval.size = 4.5,
+  pval.coord = c(300, 0.15),  
+
+  xlab = "Time (days)",
+  ylab = "Overall survival probability",
+  break.time.by = 1000,       
+  xlim = c(0, 8000),
+
+  legend.title = "Risk group",
+  legend.labs = c("Low", "High"),
+  legend = c(0.80, 0.90),     
+
+  palette = c("#2C3E50", "#E74C3C"),
+
+  # risk table
+  risk.table = TRUE,
+  risk.table.height = 0.25,
+  risk.table.title = "Number at risk",
+  risk.table.y.text.col = TRUE,
+  risk.table.y.text = FALSE, 
+
+  ggtheme = theme_classic(base_size = 14),
+  tables.theme = theme_classic(base_size = 12)
+)
+p$plot <- p$plot +
+  theme(
+    legend.key = element_blank(),
+    plot.margin = margin(5.5, 12, 5.5, 5.5),
+    axis.title = element_text(face = "bold")
+  )
+
+p$table <- p$table +
+  theme(
+    plot.margin = margin(0, 12, 0, 5.5)
+  )
+
+p_km
+```
+
+Do cox regression for continuous risk and discrete risk
+The 47-gene-riskscore has great ability for predicting the OS in the univariate analysis,.
+
+```{r}
+library(survival)
+cox_risk_cont <- coxph(Surv(OS_time_days, OS_event) ~ risk, data = model_df)
+summary(cox_risk_cont)
+
+cox_risk_grp <- coxph(Surv(OS_time_days, OS_event) ~ risk_group, data = model_df)
+summary(cox_risk_grp)
+```
+
+```{r}
+saveRDS(
+  list(
+    km_fit = km_fit,
+    cox_risk_cont = cox_risk_cont,
+    cox_risk_grp = cox_risk_grp,
+    model_df = model_df
+  ),
+  file = "R results/riskscore_KM_cox.rds"
+)
+```
+
+
