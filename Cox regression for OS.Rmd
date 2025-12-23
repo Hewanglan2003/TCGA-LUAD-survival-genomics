@@ -52,4 +52,5 @@ library(survival)
 #Cox
 cox_clinical <- coxph(Surv(OS_time_days, OS_event) ~ age_years+gender+ajcc_pathologic_stage, data = model_df)
 summary(cox_clinical)
+
 ```

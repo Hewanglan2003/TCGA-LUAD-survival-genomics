@@ -169,6 +169,9 @@ expr_keep_sorted <- expr[, ord, drop = FALSE]
 
 colnames(expr_keep_sorted)
 clinical_os_keep$submitter_id
+
+
+
 ```
 
 Merge the expression matrix with the OS data.
