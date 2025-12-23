@@ -190,3 +190,8 @@ Sanity check.
 ```{r}
 stopifnot(nrow(model_df) == ncol(expr_keep_sorted))
 ```
+
+```{r}
+saveRDS(model_df, 
+      file = "R data/expr_clinical_merged.rds")
+```

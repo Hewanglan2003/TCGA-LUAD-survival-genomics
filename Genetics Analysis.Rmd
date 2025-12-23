@@ -304,6 +304,7 @@ cox_multi <- coxph(Surv(OS_time_days, OS_event) ~ risk + age_years + gender + aj
 summary(cox_multi)
 ```
 Show the genes that are most important and significant.
+
 ```{r}
 library(org.Hs.eg.db)
 library(AnnotationDbi)
@@ -334,6 +335,8 @@ head(sig_annot)
 
 table(is.na(sig_annot$SYMBOL))
 ```
+
+Save the genes results.
 
 ```{r}
 write.csv(
