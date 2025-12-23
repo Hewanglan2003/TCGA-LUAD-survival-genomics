@@ -122,3 +122,177 @@ res$logFDR <- -log10(res$FDR)
 
 ggplot(res, aes(x = log2(HR), y = logFDR)) + geom_point(alpha = 0.4) + geom_hline(yintercept = -log10(0.05), linetype = "dashed") + theme_minimal()
 ```
+
+Multivariate genes cox regression
+
+```{r}
+library(survival)
+library(glmnet)
+
+X <- t(expr_vst_filt)
+storage.mode(X) <- "double"
+
+y <- with(model_df, Surv(OS_time_days, OS_event))
+dim(X)
+sum(model_df$OS_event)
+```
+
+```{r}
+set.seed(42)
+
+cvfit <- cv.glmnet(
+  x = X,
+  y = y,
+  family = "cox",
+  alpha = 0.5,
+  nfolds = 10,
+  standardize = TRUE
+)
+
+plot(cvfit)
+cvfit$lambda.min
+cvfit$lambda.max
+```
+
+We gonna use the lambda.min for the Elastic Net Cox Regression.
+
+```{r}
+library(glmnet)
+
+b_1se <- coef(cvfit, s = "lambda.1se")
+idx_1se <- which(as.numeric(b_1se) !=0)
+
+sig_1se <- data.frame(
+  gene = rownames(b_1se)[idx_1se],
+  coef = as.numeric(b_1se)[idx_1se],
+  stringsAsFactors = FALSE
+)
+
+b_min <- coef(cvfit, s = "lambda.min")
+idx_min <- which(as.numeric(b_min) !=0)
+
+sig_min <- data.frame(
+  gene = rownames(b_min)[idx_min],
+  coef = as.numeric(b_min)[idx_min],
+  stringsAsFactors = FALSE
+)
+
+nrow(sig_1se)
+nrow(sig_min)
+```
+
+```{r}
+saveRDS(cvfit, "R results/elastic_net_cvfit.rds")
+write.csv(sig_min, "R results/signature_lambdaMin_47 genes.csv")
+saveRDS(sig_min, "R results/signature_lambdaMin_47 genes.rds")
+```
+
+Calculate the risk scores
+
+```{r}
+# stopifnot(all(colnames(expr_vst_filt) == rownames(model_df)))
+X <- t(expr_vst_filt)
+
+model_df$risk <- as.numeric(
+  predict(cvfit, newx = X, s = "lambda.min", type = "link")
+)
+
+summary(model_df$risk)
+```
+
+```{r}
+saveRDS(model_df, "R data/model_df_with_riskscores.rds")
+```
+
+Split the risk score groups.
+
+```{r}
+cut <- median(model_df$risk, na.rm = TRUE)
+model_df$risk_group <- ifelse(model_df$risk >= cut, "High", "Low")
+model_df$risk_group <- factor(model_df$risk_group, levels = c("Low", "High"))
+
+table(model_df$risk_group)
+```
+
+KM plot and log rank p value
+
+```{r}
+library(survival)
+library(survminer)
+
+km_fit <- survfit(Surv(OS_time_days, OS_event) ~ risk_group, data = model_df)
+
+p <- ggsurvplot(
+  km_fit,
+  data = model_df,
+
+  size = 1.2,                 
+  censor.size = 2.8,          
+  conf.int = FALSE,
+
+  pval = TRUE,
+  pval.method = TRUE,
+  pval.size = 4.5,
+  pval.coord = c(300, 0.15),  
+
+  xlab = "Time (days)",
+  ylab = "Overall survival probability",
+  break.time.by = 1000,       
+  xlim = c(0, 8000),
+
+  legend.title = "Risk group",
+  legend.labs = c("Low", "High"),
+  legend = c(0.80, 0.90),     
+
+  palette = c("#2C3E50", "#E74C3C"),
+
+  # risk table
+  risk.table = TRUE,
+  risk.table.height = 0.25,
+  risk.table.title = "Number at risk",
+  risk.table.y.text.col = TRUE,
+  risk.table.y.text = FALSE, 
+
+  ggtheme = theme_classic(base_size = 14),
+  tables.theme = theme_classic(base_size = 12)
+)
+p$plot <- p$plot +
+  theme(
+    legend.key = element_blank(),
+    plot.margin = margin(5.5, 12, 5.5, 5.5),
+    axis.title = element_text(face = "bold")
+  )
+
+p$table <- p$table +
+  theme(
+    plot.margin = margin(0, 12, 0, 5.5)
+  )
+
+p_km
+```
+
+Do cox regression for continuous risk and discrete risk
+The 47-gene-riskscore has great ability for predicting the OS in the univariate analysis,.
+
+```{r}
+library(survival)
+cox_risk_cont <- coxph(Surv(OS_time_days, OS_event) ~ risk, data = model_df)
+summary(cox_risk_cont)
+
+cox_risk_grp <- coxph(Surv(OS_time_days, OS_event) ~ risk_group, data = model_df)
+summary(cox_risk_grp)
+```
+
+```{r}
+saveRDS(
+  list(
+    km_fit = km_fit,
+    cox_risk_cont = cox_risk_cont,
+    cox_risk_grp = cox_risk_grp,
+    model_df = model_df
+  ),
+  file = "R results/riskscore_KM_cox.rds"
+)
+```
+
+
