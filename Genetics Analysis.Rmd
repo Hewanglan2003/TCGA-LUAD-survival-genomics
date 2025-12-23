@@ -1,0 +1,124 @@
+---
+title: "Genetics Analysis"
+author: "Yubo Shen"
+date: "2025-12-22"
+output: pdf_document
+---
+
+```{r}
+expr_counts <- t(model_df[, 101:60760])
+
+#Screen the genes with low mean expression
+keep_gene <- rowMeans(expr_counts >= 10) >= 0.20
+expr_filt <- expr_counts[keep_gene, ]
+dim(expr_filt)
+```
+Calculate the gene expression vst.
+
+```{r}
+library(DESeq2)
+dds <- DESeqDataSetFromMatrix(
+  countData = round(expr_filt),
+  colData   = model_df,
+  design    = ~ 1
+)
+
+vsd <- vst(dds, blind = TRUE)
+expr_vst <- assay(vsd)
+```
+
+Keep genes with the 75% largest variance.
+
+```{r}
+gene_var <- apply(expr_vst, 1, var, na.rm = TRUE)
+
+cutoff <- quantile(gene_var, 0.25, na.rm = TRUE)
+keep_var <- gene_var >= cutoff
+
+expr_vst_filt <- expr_vst[keep_var, , drop = FALSE]
+
+c(n_genes_before = nrow(expr_vst), n_genes_after = nrow(expr_vst_filt))
+```
+
+```{r}
+saveRDS(list(expr_vst_filt = expr_vst_filt, model_df = model_df), file = "R data/Vst_varFiltered_ready.rds")
+```
+
+Univariate Cox gene
+
+```{r}
+library(survival)
+
+time_col <- "OS_time_days"
+event_col <- "OS_event"
+
+y <- with(model_df, Surv(model_df[[time_col]], model_df[[event_col]]))
+
+run_one_gene <- function(g){
+  x <- as.numeric(expr_vst_filt[g, ])
+  
+  if (all(is.na(x))) return(c(beta=NA, se=NA, HR=NA, CI_l=NA, CI_u=NA, p=NA))
+  if (sd(x, na.rm = TRUE) == 0) return(c(beta=NA, se=NA, HR=NA, CI_l=NA, CI_u=NA, p=NA))
+  
+  out <- tryCatch({
+    fit <- coxph(y ~ x)
+    s <- summary(fit)
+    
+    if (nrow(s$coef) < 1 || nrow(s$conf.int) < 1) {
+    return(c(beta=NA, se=NA, HR=NA, CI_l=NA, CI_u=NA, p=NA))
+    }
+    c(
+      beta = s$coef[1, "coef"],
+      se   = s$coef[1, "se(coef)"],
+      HR   = s$coef[1, "exp(coef)"],
+      CI_l = s$conf.int[1, "lower .95"],
+      CI_u = s$conf.int[1, "upper .95"],
+      p    = s$coef[1, "Pr(>|z|)"]
+    )
+  }, error = function(e) {
+    c(beta=NA, se=NA, HR=NA, CI_l=NA, CI_u=NA, p=NA)
+  })
+  out
+}
+
+genes <- rownames(expr_vst_filt)
+stopifnot(all(genes %in% rownames(expr_vst_filt)))
+
+res_mat <- t(sapply(genes, run_one_gene))
+res <- as.data.frame(res_mat)
+res$gene <- genes
+
+res$FDR <- p.adjust(res$p, method = "BH")
+
+res <- res[order(res$FDR, res$p), ]
+head(res, 20)
+
+
+```
+
+```{r}
+saveRDS(res, file = "R results/univariate_cox_gene.rds")
+write.csv(res, file = "R results/univariate_cox_gene.csv", row.names = FALSE)
+```
+
+Check the results of the univariate cox gene analysis.
+
+```{r}
+n_total <- nrow(res)
+n_tested <- sum(!is.na(res$p))
+n_sig <- sum(res$FDR < 0.05, na.rm = TRUE)
+  
+c(n_total=n_total, n_tested=n_tested, n_sig=n_sig)
+```
+
+```{r}
+summary(res$HR)
+quantile(res$HR, c(0.01, 0.05, 0.5, 0.95, 0.99), na.rm = TRUE)
+```
+```{r}
+library(ggplot2)
+
+res$logFDR <- -log10(res$FDR)
+
+ggplot(res, aes(x = log2(HR), y = logFDR)) + geom_point(alpha = 0.4) + geom_hline(yintercept = -log10(0.05), linetype = "dashed") + theme_minimal()
+```
