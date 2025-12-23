@@ -1,0 +1,55 @@
+---
+title: "Clinical Analysis"
+author: "Yubo Shen"
+date: "2025-12-22"
+output: pdf_document
+---
+
+```{r}
+model_df <- readRDS("R data/expr_clinical_merged.rds")
+```
+
+Calculate the event rate to make sure that it's valuable to contiune genetics and clinical analysis.
+event rate >= 0.25.
+
+```{r cars}
+# table(model_df$OS_event)
+# summary(model_df$OS_time_days)
+event_rate <- mean(model_df$OS_event)
+```
+
+
+```{r}
+library(survival)
+
+surv_obj <- with(model_df, Surv(OS_time_days, OS_event))
+head(surv_obj)
+```
+
+One variable Cox regression.
+
+```{r}
+library(survival)
+model_df$age_years <- model_df$age_at_diagnosis / 365.25
+summary(model_df$age_years)
+#age
+cox_age <- coxph(Surv(OS_time_days, OS_event) ~ age_years, data = model_df)
+summary(cox_age)
+
+#gender
+cox_gender <- coxph(Surv(OS_time_days, OS_event) ~ gender, data = model_df)
+summary(cox_gender)
+
+#stage
+cox_stage <- coxph(Surv(OS_time_days, OS_event) ~ ajcc_pathologic_stage, data = model_df)
+summary(cox_stage)
+```
+
+Multivariate Cox regression.
+
+```{r}
+library(survival)
+#Cox
+cox_clinical <- coxph(Surv(OS_time_days, OS_event) ~ age_years+gender+ajcc_pathologic_stage, data = model_df)
+summary(cox_clinical)
+```

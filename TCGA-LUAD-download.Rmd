@@ -37,6 +37,7 @@ library(readr)
 # 
 # query
 
+#Next time we want to do it on other kinds of cancer in TCGA, only changing the project name is enough.
 project <- "TCGA-LUAD"
 
 download_expr <- function(workflow){
@@ -67,7 +68,7 @@ se <- tryCatch(
 )
 ```
 
-
+Extract the expression matrix from the se(summarized experiment)
 
 ```{r}
 se
@@ -77,14 +78,117 @@ class(se)
 # colData(se)
 
 expr <- assay(se)
-gene <- rowData(se)
-sample <- colData(se)
+#gene <- rowData(se)
+#sample <- colData(se)
 dim(expr)
 # head(expr)
 ```
 
-```{r}
+Get the barcodes and caseid from se from the merging in the future.
 
+```{r}
+library(TCGAbiolinks)
+library(dplyr)
+library(stringr)
+
+expr_barcodes <- colnames(assay(se))
+expr_case_id <- substr(expr_barcodes, 1, 12)
+expr_barcodes
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Get clinical data through GDCquery_clinic.
+
+```{r}
+clinical_raw <- GDCquery_clinic(project = project, type = "clinical")
+dim(clinical_raw)
+names(clinical_raw)[1:30]
+head(clinical_raw[, 1:10])
+```
+Transform the phenotype data into OS data.
+
+```{r}
+clinical_os <- clinical_raw %>%
+  mutate(
+    OS_event = case_when(
+      tolower(vital_status) == "dead" ~ 1,
+      tolower(vital_status) == "alive" ~ 0,
+      TRUE ~ NA_real_
+    ),
+    OS_time_days = case_when(
+      !is.na(days_to_death) ~ as.numeric(days_to_death),
+      !is.na(days_to_last_follow_up) ~ as.numeric(days_to_last_follow_up),
+      !is.na(days_to_last_known_disease_status) ~ as.numeric(days_to_last_known_disease_status),
+      TRUE ~ NA_real_
+    )
+  ) %>%
+  
+   filter(!is.na(OS_event), !is.na(OS_time_days), OS_time_days > 0)
+```
+
+Sanity check.
+
+```{r}
+# table(clinical_os$OS_event)
+# summary(clinical_os$OS_time_days)
+```
+
+```{r}
+clinical_case_id <- clinical_os$submitter_id
+common_cases <- intersect(expr_case_id, clinical_case_id)
+length(common_cases)
+
+#Actually, there is no identical submitter id in clincal dataset.
+
+clinical_os_keep <- clinical_os %>%
+  filter(submitter_id %in% common_cases) %>%
+  distinct(submitter_id, .keep_all = TRUE)
+
+#There are 83 duplicated id in the expr_case_id so we need to screen them first.
+
+expr_keep_cols <- !duplicated(expr_case_id)
+expr_unique <- expr[, expr_keep_cols, drop = FALSE]
+
+#Pick the samples that occur in  common_cases
+expr_unique_case <- substr(colnames(expr_unique), 1, 12)
+keep_cols <- expr_unique_case %in% common_cases
+expr_keep <- expr_unique[, keep_cols, drop = FALSE]
+# dim(expr_keep)
+# dim(clinical_os_keep)
+```
+
+Sort the expr_keep case number with the clinical_os$submitter_id.
+
+```{r}
+expr_keep_case_id <- substr(colnames(expr_keep),1 , 12)
+
+ord <- match(clinical_os_keep$submitter_id, expr_case_id)
+
+stopifnot(!any(is.na(ord)))
+
+expr_keep_sorted <- expr[, ord, drop = FALSE]
+
+colnames(expr_keep_sorted)
+clinical_os_keep$submitter_id
+```
+
+Merge the expression matrix with the OS data.
+
+```{r}
+#Transpose the expr_keep first
+
+expr_df <- as.data.frame(t(expr_keep_sorted))
+expr_df$case_id <- substr(rownames(expr_df), 1, 12)
+
+model_df <- cbind(clinical_os_keep, expr_df[, setdiff(names(expr_df), "case_id")])
+```
+
+Sanity check.
+
+```{r}
+stopifnot(nrow(model_df) == ncol(expr_keep_sorted))
+```
+
+```{r}
+saveRDS(model_df, 
+      file = "R data/expr_clinical_merged.rds")
+```
