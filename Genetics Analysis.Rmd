@@ -42,6 +42,9 @@ c(n_genes_before = nrow(expr_vst), n_genes_after = nrow(expr_vst_filt))
 
 ```{r}
 saveRDS(list(expr_vst_filt = expr_vst_filt, model_df = model_df), file = "R data/Vst_varFiltered_ready.rds")
+# obj <- readRDS("R data/Vst_varFiltered_ready.rds")
+# expr_vst_filt <- obj$expr_vst_filt
+# model_df <- obj$model_df
 ```
 
 Univariate Cox gene
@@ -267,8 +270,27 @@ p$table <- p$table +
   theme(
     plot.margin = margin(0, 12, 0, 5.5)
   )
+p
 
-p_km
+g <- survminer::arrange_ggsurvplots(
+  list(p),
+  print = FALSE
+)
+
+ggsave(
+  filename = "R results/Figure_KM_OS_risk_group.pdf",
+  plot = g,
+  width = 8.5,
+  height = 6.5
+)
+
+ggsave(
+  filename = "R results/Figure_KM_OS_risk_group.png",
+  plot = g,
+  width = 8.5,
+  height = 6.5,
+  dpi = 300
+)
 ```
 
 Do cox regression for continuous risk and discrete risk
@@ -279,8 +301,7 @@ library(survival)
 cox_risk_cont <- coxph(Surv(OS_time_days, OS_event) ~ risk, data = model_df)
 summary(cox_risk_cont)
 
-cox_risk_grp <- coxph(Surv(OS_time_days, OS_event) ~ risk_group, data = model_df)
-summary(cox_risk_grp)
+
 ```
 
 ```{r}
@@ -302,7 +323,110 @@ Risk score is still an important factor in this survival analysis part.
 library(survival)
 cox_multi <- coxph(Surv(OS_time_days, OS_event) ~ risk + age_years + gender + ajcc_pathologic_stage, data = model_df)
 summary(cox_multi)
+
+s <- summary(cox_multi)
+
+cox_multi_df <- data.frame(
+  gene = rownames(s$coefficients),
+  beta = s$coefficients[, "coef"],
+  se   = s$coefficients[, "se(coef)"],
+  HR   = s$coefficients[, "exp(coef)"],
+  CI_lower = s$conf.int[, "lower .95"],
+  CI_upper = s$conf.int[, "upper .95"],
+  p = s$coefficients[, "Pr(>|z|)"],
+  row.names = NULL,
+  check.names = FALSE
+)
+
+write.csv(cox_multi_df, file = "R results/Multivariate_cox_results.csv")
 ```
+
+Forest plot for cox_multi_df.
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(stringr)
+
+# colnames(cox_multi_df)
+
+df_forest_plot <- df_forest %>%
+  mutate(
+    label = case_when(
+      term == "risk"        ~ "Risk score",
+      term == "age_years"   ~ "Age (years)",
+      term == "gendermale"  ~ "Male (vs Female)",
+
+      str_detect(term, "^ajcc_pathologic_stage") ~
+        str_replace(term, "^ajcc_pathologic_stage", ""),
+
+      TRUE ~ term
+    ),
+
+    label = str_squish(label),
+    
+    order_key = case_when(
+      label == "Stage IA"   ~ 1,
+      label == "Stage IB"   ~ 2,
+      label == "Stage II"   ~ 3,
+      label == "Stage IIA"  ~ 4,
+      label == "Stage IIB"  ~ 5,
+      label == "Stage IIIA" ~ 6,
+      label == "Stage IIIB" ~ 7,
+      label == "Stage IV"   ~ 8,
+
+      label == "Male (vs Female)" ~ 20,
+      label == "Age (years)"      ~ 30,
+      label == "Risk score"       ~ 40,
+
+      TRUE ~ 99
+    )
+  ) %>%
+  arrange(order_key) %>%
+  mutate(
+    label = factor(label, levels = rev(unique(label)))
+  )
+
+df_forest_plot_notation <- df_forest_plot %>%
+  mutate(
+    hr_ci_txt = sprintf("%.2f (%.2f–%.2f)", hr, ci_lower, ci_upper),
+    p_txt = case_when(
+      is.na(p) ~ "",
+      p < 0.001 ~ "<0.001",
+      TRUE ~ sprintf("%.3f", p)
+    ),
+    sig = !is.na(p) & p < 0.05
+  )
+
+
+p_forest <- ggplot(df_forest_plot_notation, aes(x = hr, y = label)) +
+  geom_vline(xintercept = 1, linetype = "dashed", color = "grey40") +
+  geom_errorbarh(aes(xmin = ci_lower, xmax = ci_upper), height = 0.2) +
+  geom_point(size = 2.8) +
+  scale_x_log10() +
+  labs(
+    x = "Hazard Ratio(log scale)",
+    y = NULL,
+    title = "Multivariable Cox Regression for DFS"
+  ) +
+  theme_classic(base_size = 12)
+
+ggsave(
+  filename = "R results/Figure_Forest_MultivariableCox.pdf",
+  plot = p_forest,
+  width = 8.5,
+  height = 6.0
+)
+
+ggsave(
+  filename = "R results/Figure_Forest_MultivariableCox.png",
+  plot = p_forest,
+  width = 8.5,
+  height = 6.0,
+  dpi = 300
+)
+```
+
 Show the genes that are most important and significant.
 
 ```{r}
