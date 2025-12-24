@@ -9,7 +9,7 @@ output: pdf_document
 model_df <- readRDS("R data/expr_clinical_merged.rds")
 ```
 
-Calculate the event rate to make sure that it's valuable to contiune genetics and clinical analysis.
+Calculate the event rate to make sure that it's valuable to continue genetics and clinical analysis.
 event rate >= 0.25.
 
 ```{r cars}
