@@ -1,0 +1,11 @@
+# R session / IDE files
+.Rhistory
+.RData
+.Rproj.user/
+
+# Raw downloaded data (large, reproducible)
+GDCdata/
+
+# OS junk
+.DS_Store
+Thumbs.db
